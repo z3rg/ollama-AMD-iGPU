@@ -192,7 +192,7 @@ jobs:
         with:
           node-version: "20"
       - run: |
-          ./scripts/build_windows ollama app
+          ./scripts/build_windows
       - name: Log build results
         run: |
           gci -path .\dist -Recurse -File | ForEach-Object { get-filehash -path $_.FullName -Algorithm SHA256 } | format-list
