@@ -1,4 +1,4 @@
-name: release-beta1
+name: release
 
 on:
   workflow_dispatch:
