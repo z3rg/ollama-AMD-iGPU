@@ -22,54 +22,9 @@ jobs:
       - name: Set environment
         id: goflags
         run: |
-          echo GOFLAGS="'-ldflags=-w -s \"-X=github.com/ollama/ollama/version.Version=${GITHUB_REF_NAME#v}\" \"-X=github.com/ollama/ollama/server.mode=release\"'" | tee -a $GITHUB_OUTPUT
+          echo GOFLAGS="'-ldflags=-w -s \"-X=github.com/z3rg/ollama-AMD-iGPU/version.Version=${GITHUB_REF_NAME#v}\" \"-X=github.com/z3rg/ollama-AMD-iGPU/server.mode=release\"'" | tee -a $GITHUB_OUTPUT
           echo VERSION="${GITHUB_REF_NAME#v}" | tee -a $GITHUB_OUTPUT
           echo vendorsha=$(make -f Makefile.sync print-base) | tee -a $GITHUB_OUTPUT
-
-  darwin-build:
-    runs-on: macos-14-xlarge
-    environment: release
-    needs: setup-environment
-    env:
-      GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
-      VERSION: ${{ needs.setup-environment.outputs.VERSION }}
-      APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      APPLE_ID: ${{ vars.APPLE_ID }}
-      MACOS_SIGNING_KEY: ${{ secrets.MACOS_SIGNING_KEY }}
-      MACOS_SIGNING_KEY_PASSWORD: ${{ secrets.MACOS_SIGNING_KEY_PASSWORD }}
-      CGO_CFLAGS: '-mmacosx-version-min=14.0 -O3'
-      CGO_CXXFLAGS: '-mmacosx-version-min=14.0 -O3'
-      CGO_LDFLAGS: '-mmacosx-version-min=14.0 -O3'
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          echo $MACOS_SIGNING_KEY | base64 --decode > certificate.p12
-          security create-keychain -p password build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p password build.keychain
-          security import certificate.p12 -k build.keychain -P $MACOS_SIGNING_KEY_PASSWORD -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k password build.keychain
-          security set-keychain-settings -lut 3600 build.keychain
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            Makefile.sync
-      - run: |
-          ./scripts/build_darwin.sh
-      - name: Log build results
-        run: |
-          ls -l dist/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bundles-darwin
-          path: |
-            dist/*.tgz
-            dist/*.zip
-            dist/*.dmg
 
   windows-depends:
     strategy:
@@ -80,33 +35,8 @@ jobs:
         include:
           - os: windows
             arch: amd64
-            preset: 'CUDA 12'
-            install: https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_571.96_windows.exe
-            cuda-components:
-              - '"cudart"'
-              - '"nvcc"'
-              - '"cublas"'
-              - '"cublas_dev"'
-            cuda-version: '12.8'
-            flags: ''
-          - os: windows
-            arch: amd64
-            preset: 'CUDA 13'
-            install: https://developer.download.nvidia.com/compute/cuda/13.0.0/local_installers/cuda_13.0.0_windows.exe
-            cuda-components:
-              - '"cudart"'
-              - '"nvcc"'
-              - '"cublas"'
-              - '"cublas_dev"'
-              - '"crt"'
-              - '"nvvm"'
-              - '"nvptxcompiler"'
-            cuda-version: '13.0'
-            flags: ''
-          - os: windows
-            arch: amd64
             preset: 'ROCm 6'
-            install: https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-24.Q4-WinSvr2022-For-HIP.exe
+            install: https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-25.Q4-WinSvr2022-For-HIP.exe
             rocm-version: '6.2'
             flags: '-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS="-parallel-jobs=4 -Wno-ignored-attributes -Wno-deprecated-pragma" -DCMAKE_CXX_FLAGS="-parallel-jobs=4 -Wno-ignored-attributes -Wno-deprecated-pragma"'
             runner_dir: 'rocm'
