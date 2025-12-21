@@ -1,0 +1,307 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CGO_CFLAGS: '-O3'
+  CGO_CXXFLAGS: '-O3'
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      GOFLAGS: ${{ steps.goflags.outputs.GOFLAGS }}
+      VERSION: ${{ steps.goflags.outputs.VERSION }}
+      vendorsha: ${{ steps.changes.outputs.vendorsha }}
+    steps:
+      - name: Set environment
+        id: goflags
+        run: |
+          git clone https://github.com/ollama/ollama.git
+          cd ollama
+          latestTag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
+          echo $latestTag
+          echo GOFLAGS="'-ldflags=-w -s \"-X=github.com/ollama/ollama/version.Version=${latestTag:1}\" \"-X=github.com/ollama/ollama/server.mode=release\"'" | tee -a $GITHUB_OUTPUT
+          echo VERSION="${latestTag:1}" | tee -a $GITHUB_OUTPUT
+          echo vendorsha=$(make -f Makefile.sync print-base) | tee -a $GITHUB_OUTPUT
+
+  windows-depends:
+    strategy:
+      matrix:
+        os: [windows]
+        arch: [amd64]
+        preset: ['CPU']
+        include:
+          - os: windows
+            arch: amd64
+            preset: 'ROCm 6'
+            install: https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-25.Q3-WinSvr2022-For-HIP.exe
+            rocm-version: '6.4'
+            flags: '-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS="-parallel-jobs=4 -Wno-ignored-attributes -Wno-deprecated-pragma" -DCMAKE_CXX_FLAGS="-parallel-jobs=4 -Wno-ignored-attributes -Wno-deprecated-pragma"'
+            runner_dir: 'rocm'
+    runs-on: windows-2022
+    environment: release
+    env:
+      GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
+    steps:
+      - name: Install system dependencies
+        run: |
+          choco install -y --no-progress ccache ninja
+          mkdir ollama
+          ccache -o cache_dir=${{ github.workspace }}\ollama\.ccache
+      - if: startsWith(matrix.preset, 'CUDA ') || startsWith(matrix.preset, 'ROCm ') || startsWith(matrix.preset, 'Vulkan')
+        id: cache-install
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA
+            C:\Program Files\AMD\ROCm
+            C:\VulkanSDK
+          key: ${{ matrix.install }}
+      - if: startsWith(matrix.preset, 'ROCm')
+        name: Install ROCm ${{ matrix.rocm-version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ("${{ steps.cache-install.outputs.cache-hit }}" -ne 'true') {
+            Invoke-WebRequest -Uri "${{ matrix.install }}" -OutFile "install.exe"
+            Start-Process -FilePath .\install.exe -ArgumentList '-install' -NoNewWindow -Wait
+          }
+
+          $hipPath = (Resolve-Path "C:\Program Files\AMD\ROCm\*").path
+          echo "$hipPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "CC=$hipPath\bin\clang.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CXX=$hipPath\bin\clang++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HIPCXX=$hipPath\bin\clang++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HIP_PLATFORM=amd" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CMAKE_PREFIX_PATH=$hipPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - if: matrix.preset == 'Vulkan'
+        name: Install Vulkan ${{ matrix.rocm-version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ("${{ steps.cache-install.outputs.cache-hit }}" -ne 'true') {
+            Invoke-WebRequest -Uri "${{ matrix.install }}" -OutFile "install.exe"
+            Start-Process -FilePath .\install.exe -ArgumentList "-c","--am","--al","in" -NoNewWindow -Wait
+          }
+          
+          $vulkanPath = (Resolve-Path "C:\VulkanSDK\*").path
+          echo "$vulkanPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "VULKAN_SDK=$vulkanPath" >> $env:GITHUB_ENV
+      - if: matrix.preset == 'CPU'
+        run: |
+          echo "CC=clang.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CXX=clang++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - if: ${{ !cancelled() && steps.cache-install.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA
+            C:\Program Files\AMD\ROCm
+            C:\VulkanSDK
+          key: ${{ matrix.install }}
+      - name: Chekout Latest OllamaSetup
+        run: |
+          git clone https://github.com/ollama/ollama.git
+          cd ollama
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\ollama\.ccache
+          key: ccache-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.preset }}-${{ needs.setup-environment.outputs.vendorsha }}
+      - name: Build target "${{ matrix.preset }}"
+        run: |
+          Import-Module 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
+          Enter-VsDevShell -VsInstallPath 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise' -SkipAutomaticLocation  -DevCmdArguments '-arch=x64 -no_logo'
+          echo "$((pwd).Path)"
+          cd ollama
+          cmake --preset "${{ matrix.preset }}" ${{ matrix.flags }} --install-prefix "$((pwd).Path)\ollama\dist\${{ matrix.os }}-${{ matrix.arch }}"
+          cmake --build --parallel ([Environment]::ProcessorCount) --preset "${{ matrix.preset }}"
+          cmake --install build --component "${{ startsWith(matrix.preset, 'CUDA ') && 'CUDA' || startsWith(matrix.preset, 'ROCm ') && 'HIP' || startsWith(matrix.preset, 'Vulkan') && 'Vulkan' || 'CPU' }}" --strip
+          Remove-Item -Path dist\lib\ollama\rocm\rocblas\library\*gfx906* -ErrorAction SilentlyContinue
+        env:
+          CMAKE_GENERATOR: Ninja
+      - name: Log build results
+        run: |
+          gci -path .\ollama\dist -Recurse -File | ForEach-Object { get-filehash -path $_.FullName -Algorithm SHA256 } | format-list
+      - uses: actions/upload-artifact@v4
+        with:
+          name: depends-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.preset }}
+          path: ollama\dist\*
+
+  windows-build:
+    strategy:
+      matrix:
+        os: [windows]
+        arch: [amd64]
+        include:
+        - os: windows
+          arch: amd64
+          llvmarch: x86_64
+    runs-on: windows-2022
+    needs: [setup-environment]
+    env:
+      GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
+      VERSION: ${{ needs.setup-environment.outputs.VERSION }}
+    steps:
+      - name: Install clang and gcc-compat
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          Invoke-WebRequest -Uri "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-${{ matrix.llvmarch }}.zip" -OutFile "${{ runner.temp }}\llvm-mingw-ucrt.zip"
+          Expand-Archive -Path ${{ runner.temp }}\llvm-mingw-ucrt.zip -DestinationPath "C:\Program Files\"
+          $installPath=(Resolve-Path -Path "C:\Program Files\llvm-mingw-*-ucrt*").path
+          echo "$installPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Chekout Latest OllamaSetup
+        run: |
+          git clone https://github.com/ollama/ollama.git
+          cd ollama
+          pwd
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ github.workspace }}\ollama\go.mod
+          cache-dependency-path: |
+            ${{ github.workspace }}\ollama\go.sum
+            ${{ github.workspace }}\ollama\Makefile.sync
+      - name: Verify gcc is actually clang
+        run: |
+          $ErrorActionPreference='Continue'
+          $version=& gcc -v 2>&1
+          $version=$version -join "`n"
+          echo "gcc is $version"
+          if ($version -notmatch 'clang') {
+            echo "ERROR: GCC must be clang for proper utf16 handling"
+            exit 1
+          }
+          $ErrorActionPreference='Stop'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: |
+          ${{ github.workspace }}\ollama\scripts\build_windows.ps1 ollama app
+      - name: Log build results
+        run: |
+          gci -path .\ollama\dist -Recurse -File | ForEach-Object { get-filehash -path $_.FullName -Algorithm SHA256 } | format-list
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ollama\dist\*
+
+  windows-app:
+    runs-on: windows-2022
+    environment: release
+    needs: [windows-build, windows-depends]
+    env:
+      GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
+      VERSION: ${{ needs.setup-environment.outputs.VERSION }}
+      KEY_CONTAINER: ${{ vars.KEY_CONTAINER }}
+    steps:
+      - name: Chekout Latest OllamaSetup
+        run: |
+          git clone https://github.com/ollama/ollama.git
+          cd ollama
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ollama
+          credentials_json: ${{ secrets.GOOGLE_SIGNING_CREDENTIALS }}
+      - run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=323507" -OutFile "${{ runner.temp }}\sdksetup.exe"
+          Start-Process "${{ runner.temp }}\sdksetup.exe" -ArgumentList @("/q") -NoNewWindow -Wait
+
+          Invoke-WebRequest -Uri "https://github.com/GoogleCloudPlatform/kms-integrations/releases/download/cng-v1.0/kmscng-1.0-windows-amd64.zip" -OutFile "${{ runner.temp }}\plugin.zip"
+          Expand-Archive -Path "${{ runner.temp }}\plugin.zip" -DestinationPath "${{ runner.temp }}\plugin\"
+          & "${{ runner.temp }}\plugin\*\kmscng.msi" /quiet
+
+          echo "${{ vars.OLLAMA_CERT }}" >ollama_inc.crt
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            cd ollama
+            go.sum
+            Makefile.sync
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: depends-windows*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: build-windows*
+          path: dist
+          merge-multiple: true
+      - name: Log dist contents after download
+        run: |
+          gci -path .\dist -recurse
+      - run: |
+          ./scripts/build_windows.ps1 deps sign installer zip
+      - name: Log contents after build
+        run: |
+          gci -path .\dist -Recurse -File | ForEach-Object { get-filehash -path $_.FullName -Algorithm SHA256 } | format-list
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles-windows
+          path: |
+            ollama/dist/*.zip
+            ollama/dist/OllamaSetup.exe
+
+  # Final release process
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    needs: [ windows-app]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Chekout Latest OllamaSetup
+        run: |
+          git clone https://github.com/ollama/ollama.git
+          cd ollama
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          path: dist
+          merge-multiple: true
+      - name: Log dist contents
+        run: |
+          ls -l dist/
+      - name: Generate checksum file
+        run: find . -type f -not -name 'sha256sum.txt' | xargs sha256sum | tee sha256sum.txt
+        working-directory: dist
+      - name: Create or update Release for tag
+        run: |
+          RELEASE_VERSION="$(echo $(git describe --tags "$(git rev-list --tags --max-count=1)") | cut -f1 -d-)"
+          echo "Looking for existing release for ${RELEASE_VERSION}"
+          OLD_TAG=$(gh release ls --json name,tagName | jq -r ".[] | select(.name == \"${RELEASE_VERSION}\") | .tagName")
+          if [ -n "$OLD_TAG" ]; then
+            echo "Updating release ${RELEASE_VERSION} to point to new tag $(git describe --tags "$(git rev-list --tags --max-count=1)")"
+            gh release edit ${OLD_TAG} --tag $(git describe --tags "$(git rev-list --tags --max-count=1)")
+          else
+            echo "Creating new release ${RELEASE_VERSION} pointing to tag ${GITHUB_REF_NAME}"
+            gh release create ${GITHUB_REF_NAME} \
+              --title ${RELEASE_VERSION} \
+              --draft \
+              --generate-notes \
+              --prerelease
+          fi
+      - name: Upload release artifacts
+        run: |
+          pids=()
+          for payload in dist/*.txt dist/*.zip dist/*.tgz dist/*.exe ; do
+            echo "Uploading $payload"
+            gh release upload ${GITHUB_REF_NAME} $payload --clobber &
+            pids[$!]=$!
+            sleep 1
+          done
+          echo "Waiting for uploads to complete"
+          for pid in "${pids[*]}"; do
+            wait $pid
+          done
+          echo "done"
