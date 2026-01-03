@@ -86,8 +86,8 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 
-       - name: Release
-         uses: softprops/action-gh-release@v2
+      - name: Release
+        uses: softprops/action-gh-release@v2
           with:
             tag_name: ${{ env.GENERATED_TAG }}      
             name: "Auto Release ${{ env.GENERATED_TAG }}"
