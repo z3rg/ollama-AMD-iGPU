@@ -3,9 +3,12 @@ name: release-final
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   configure-and-build:
-    name: Modify Configs on Windows Runner
+    name: Release Ollama for 780M
     runs-on: [self-hosted, windows]
     
     defaults:
@@ -15,6 +18,17 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Generate Tag Name
+        id: tag_generator
+        run: |
+          $date = Get-Date -Format "yyyyMMdd-HHmm"
+          $hash = $env:GITHUB_SHA.Substring(0, 7)
+          $tagName = "build-$date-$hash"
+          
+          # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
+          echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
+          Write-Host "Tag yang akan dibuat: $tagName"
 
       - name: Update CMakeLists.txt Regex
         run: |
@@ -71,6 +85,17 @@ jobs:
       - name: Compile
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
+
+       - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.GENERATED_TAG }}      # Pakai tag dari step 1
+          name: "Auto Release ${{ env.GENERATED_TAG }}"
+          files: |
+            dist/OllamaSetup.exe
+          draft: false
+          prerelease: false
+
       # --- LANGKAH 5: CLEANUP WORKSPACE ---
       # Dijalankan selalu (if: always) agar disk server tidak penuh
 #      - name: Cleanup Workspace
