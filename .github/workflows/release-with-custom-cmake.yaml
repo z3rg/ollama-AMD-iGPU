@@ -84,12 +84,14 @@ jobs:
           
           Write-Host "--- Cek CMakeLists.txt ---"
           Select-String -Path "CMakeLists.txt" -Pattern "gfx1150"
-
+      - name: Compile
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
       # --- LANGKAH 5: CLEANUP WORKSPACE ---
       # Dijalankan selalu (if: always) agar disk server tidak penuh
-      - name: Cleanup Workspace
-        if: always()
-        run: |
-          Write-Host "Membersihkan folder kerja..."
+#      - name: Cleanup Workspace
+#        if: always()
+#        run: |
+#          Write-Host "Membersihkan folder kerja..."
           Remove-Item -Path $env:GITHUB_WORKSPACE\* -Recurse -Force -ErrorAction SilentlyContinue
           Write-Host "Pembersihan selesai."
