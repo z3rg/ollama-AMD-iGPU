@@ -1,4 +1,4 @@
-name: Update CMake Configuration
+name: Release with Update CMake Configuration
 
 on:
   #push:
