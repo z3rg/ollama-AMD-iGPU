@@ -1,6 +1,8 @@
 name: release-final
 
 on:
+  schedule:
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -73,8 +75,6 @@ jobs:
           Set-Content -Path $file -Value $newContent
           Write-Host "Sukses: CMakePresets.json telah diupdate."
 
-      # --- LANGKAH 4: VERIFIKASI (OPSIONAL) ---
-      # Menampilkan isi file untuk memastikan perubahan berhasil (Hanya 5 baris pertama/terkait)
       - name: Verify Changes
         run: |
           Write-Host "--- Cek CMakePresets.json ---"
@@ -90,9 +90,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.GENERATED_TAG }}      
-          name: "Auto Release ${{ env.GENERATED_TAG }}"
+          name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"
           files: |
              dist/OllamaSetup.exe
           draft: false
           prerelease: false
+
+      - name: Cleanup Workspace
+        if: always()
+        run: |
+          Write-Host "Membersihkan folder kerja..."
+          # Perintah ini kompatibel dengan PowerShell 5.1
+          Remove-Item -Path $env:GITHUB_WORKSPACE\* -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "Pembersihan selesai."
 
