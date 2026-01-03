@@ -1,0 +1,50 @@
+name: Sync Fork with Upstream
+
+on:
+  # Jalan otomatis setiap hari Sabtu jam 00:00 UTC
+  schedule:
+    - cron: '0 0 * * 6'
+  # Bisa dijalankan manual tombolnya
+  workflow_dispatch:
+
+permissions:
+  contents: write # PENTING: Izin untuk melakukan git push
+
+jobs:
+  sync:
+    # Bisa pakai 'ubuntu-latest' atau 'self-hosted' (Windows)
+    # Git command bersifat universal
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout repository Anda
+      - name: Checkout Fork
+        uses: actions/checkout@v4
+        with:
+          ref: main             # Ganti dengan 'master' jika branch utama anda master
+          fetch-depth: 0        # WAJIB 0: Agar bisa mengambil history commit untuk merge
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Konfigurasi Git User
+      - name: Configure Git
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+
+      # 3. Proses Sync (PowerShell / Bash Compatible)
+      - name: Sync with Upstream
+        shell: cmd # Menggunakan CMD agar aman di Windows, atau bash di Linux
+        run: |
+          echo "Menambahkan remote upstream..."
+          git remote add upstream https://github.com/ollama/ollama.git || echo "Remote upstream sudah ada"
+          
+          echo "Mengambil update dari upstream..."
+          git fetch upstream
+          
+          echo "Melakukan merge ke branch lokal..."
+          REM Pastikan branch target sesuai (main/master)
+          git checkout main
+          git merge upstream/main
+          
+          echo "Push perubahan ke Fork..."
+          git push origin main
