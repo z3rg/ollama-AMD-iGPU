@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '0 0 * * 6'
   # Agar bisa ditrigger manual via tombol "Run workflow"
-  workflow_dispatch:
+  #workflow_dispatch:
 
 # Izin wajib agar bot bisa melakukan 'git push' ke repo Anda
 permissions:
