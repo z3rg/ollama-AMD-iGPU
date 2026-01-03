@@ -1,19 +1,18 @@
-name: Sync Fork with Upstream
+name: Sync Fork (Ubuntu)
 
 on:
-  # Jalan otomatis setiap hari Sabtu jam 00:00 UTC
+  # Jalan otomatis setiap hari sabtu jam 00:00 UTC (07:00 WIB)
   schedule:
     - cron: '0 0 * * 6'
-  # Bisa dijalankan manual tombolnya
+  # Agar bisa ditrigger manual via tombol "Run workflow"
   workflow_dispatch:
 
+# Izin wajib agar bot bisa melakukan 'git push' ke repo Anda
 permissions:
-  contents: write # PENTING: Izin untuk melakukan git push
+  contents: write
 
 jobs:
   sync:
-    # Bisa pakai 'ubuntu-latest' atau 'self-hosted' (Windows)
-    # Git command bersifat universal
     runs-on: ubuntu-latest
     
     steps:
@@ -21,30 +20,29 @@ jobs:
       - name: Checkout Fork
         uses: actions/checkout@v4
         with:
-          ref: main             # Ganti dengan 'master' jika branch utama anda master
-          fetch-depth: 0        # WAJIB 0: Agar bisa mengambil history commit untuk merge
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main        # Pastikan ini sesuai branch utama anda (main/master)
+          fetch-depth: 0   # WAJIB: Ambil semua history agar bisa di-merge
 
-      # 2. Konfigurasi Git User
-      - name: Configure Git
+      # 2. Proses Sync
+      - name: Sync with Upstream
         run: |
+          # A. Konfigurasi User Git (Formalitas)
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
 
-      # 3. Proses Sync (PowerShell / Bash Compatible)
-      - name: Sync with Upstream
-        shell: cmd # Menggunakan CMD agar aman di Windows, atau bash di Linux
-        run: |
-          echo "Menambahkan remote upstream..."
-          git remote add upstream https://github.com/ollama/ollama.git || echo "Remote upstream sudah ada"
+          # B. Tambahkan Remote Upstream (Repo Asli)
+          # GANTI URL DI BAWAH INI DENGAN REPO ASLI (TARGET)
+          git remote add upstream https://github.com/ollama/ollama.git
           
-          echo "Mengambil update dari upstream..."
+          # C. Ambil update terbaru
+          echo "Fetching upstream..."
           git fetch upstream
-          
-          echo "Melakukan merge ke branch lokal..."
-          REM Pastikan branch target sesuai (main/master)
+
+          # D. Pindah ke branch main dan Merge
+          echo "Merging changes..."
           git checkout main
           git merge upstream/main
-          
-          echo "Push perubahan ke Fork..."
+
+          # E. Push perubahan ke Fork Anda
+          echo "Pushing changes..."
           git push origin main
