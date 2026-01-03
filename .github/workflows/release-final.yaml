@@ -89,10 +89,10 @@ jobs:
        - name: Release
          uses: softprops/action-gh-release@v2
           with:
-           tag_name: ${{ env.GENERATED_TAG }}      # Pakai tag dari step 1
-           name: "Auto Release ${{ env.GENERATED_TAG }}"
-           files: |
-             dist/OllamaSetup.exe
-           draft: false
-           prerelease: false
+            tag_name: ${{ env.GENERATED_TAG }}      
+            name: "Auto Release ${{ env.GENERATED_TAG }}"
+            files: |
+              dist/OllamaSetup.exe
+            draft: false
+            prerelease: false
 
