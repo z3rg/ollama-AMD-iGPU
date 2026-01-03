@@ -1,4 +1,4 @@
-name: Release with Update CMake Configuration
+name: Release_final
 
 on:
   workflow_dispatch: # Agar bisa dijalankan manual via tombol
