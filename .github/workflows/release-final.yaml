@@ -24,9 +24,9 @@ jobs:
       - name: Generate Tag Name
         id: tag_generator
         run: |
-          $date = Get-Date -Format "yyyyMMdd-HHmm"
+          $date = Get-Date -Format "yyyyMMdd"
           $hash = $env:GITHUB_SHA.Substring(0, 7)
-          $tagName = "build-$date-$hash"
+          $tagName = "v.$date-$hash"
           
           # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
           echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
@@ -107,7 +107,7 @@ jobs:
           Write-Host "Mengupload release ke GitHub..."
           
           gh release create ${{ env.GENERATED_TAG }} "dist\OllamaSetup.exe" `
-            --title "Release ${{ env.GENERATED_TAG }}" `
+            --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
             --generate-notes `
             --target "${{ github.sha }}"
 
