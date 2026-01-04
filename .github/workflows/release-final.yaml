@@ -86,16 +86,33 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "Release ${{ env.GENERATED_TAG }}"     
-          name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"
-          files: |
-             dist/OllamaSetup.exe
-          draft: false
-          prerelease: false
+#      - name: Release
+#        uses: softprops/action-gh-release@v2
+#        with:
+#          tag_name: "Release ${{ env.GENERATED_TAG }}"     
+#          name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"
+#          files: |
+#             dist/OllamaSetup.exe
+#          draft: false
+#          prerelease: false
 
+      - name: Create Release & Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # KUNCI UTAMA: Token autentikasi
+        run: |
+
+          # EKSEKUSI GH CLI
+          # Syntax: gh release create <TAG> <FILES> --title <JUDUL> --notes <CATATAN>
+          
+          Write-Host "Mengupload release ke GitHub..."
+          
+          gh release create ${{ env.GENERATED_TAG }} "dist\OllamaSetup.exe" `
+            --title "Release ${{ env.GENERATED_TAG }}" `
+            --generate-notes `
+            --target "${{ github.sha }}"
+
+          Write-Host "Sukses! Release ${{ env.GENERATED_TAG }} telah dibuat."
+          
       - name: Cleanup Workspace
         if: always()
         run: |
