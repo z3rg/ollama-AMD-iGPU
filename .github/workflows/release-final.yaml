@@ -3,7 +3,7 @@ name: release-final
 on:
   schedule:
     - cron: '0 0 * * 0'
-  workflow_dispatch:
+  #workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ jobs:
         run: |
           $date = Get-Date -Format "yyyyMMdd"
           $hash = $env:GITHUB_SHA.Substring(0, 7)
-          $tagName = "v.$date-$hash"
+          $tagName = "v.$date"
           
           # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
           echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
