@@ -3,7 +3,7 @@ name: release-final
 on:
   schedule:
     - cron: '0 0 * * 0'
-  #workflow_dispatch:
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -89,8 +89,8 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"     
-          name: "Release ${{ env.GENERATED_TAG }}"
+          tag_name: "Release ${{ env.GENERATED_TAG }}"     
+          name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"
           files: |
              dist/OllamaSetup.exe
           draft: false
