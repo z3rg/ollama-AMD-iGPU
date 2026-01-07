@@ -18,7 +18,7 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository , Add gfx 1103, and compile
         #uses: actions/checkout@v4
         run: |
           git clone https://github.com/ollama/ollama
