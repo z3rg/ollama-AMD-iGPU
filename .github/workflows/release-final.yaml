@@ -18,7 +18,7 @@ jobs:
         shell: powershell
 
     steps:
-      - nsme: Checkout this repo
+      - name: Checkout this repo
         uses: actions/checkout@v4
 
       - name: Checkout ollama Repository , Add gfx 1103, and compile
