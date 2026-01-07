@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout Repository , Add gfx 1103, and compile
         #uses: actions/checkout@v4
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git clone https://github.com/ollama/ollama
           cd ollama
@@ -71,9 +73,6 @@ jobs:
 
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 
-      - name: Generate Tag Name
-        id: tag_generator
-        run: |
           $date = Get-Date -Format "yyyyMMdd"
           $hash = $env:GITHUB_SHA.Substring(0, 7)
           $tagName = "v.$date"
@@ -81,19 +80,8 @@ jobs:
           # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
           echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
           Write-Host "Tag yang akan dibuat: $tagName"
-
-      - name: Create Release & Upload
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # KUNCI UTAMA: Token autentikasi
-        run: |
-
-          # EKSEKUSI GH CLI
-          # Syntax: gh release create <TAG> <FILES> --title <JUDUL> --notes <CATATAN>
-          
           Write-Host "Mengupload release ke GitHub..."
-          pwd
-          cd ollama
-          gh release create ${{ env.GENERATED_TAG }} "ollama\dist\OllamaSetup.exe" `
+          gh release create ${{ env.GENERATED_TAG }} "dist\OllamaSetup.exe" `
             --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
             --generate-notes `
             --target "${{ github.sha }}"
