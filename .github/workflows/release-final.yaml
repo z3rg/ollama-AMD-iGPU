@@ -85,9 +85,9 @@ jobs:
           Write-Host "Tag yang akan dibuat: $tagName"
           Write-Host "Mengupload release ke GitHub..."
           cd ..
-          Write-Host "Tag yang tersimpan : ${{ env.GENERATED_TAG }}"
-          gh release create ${{ env.GENERATED_TAG }} "ollama\dist\OllamaSetup.exe" `
-            --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
+          Write-Host "Tag yang tersimpan : $tagName"
+          gh release create $tagName "ollama\dist\OllamaSetup.exe" `
+            --title "Ollama for 780M Release $tagName" `
             --generate-notes `
             --target "main"
 
