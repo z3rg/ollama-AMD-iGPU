@@ -19,21 +19,11 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Generate Tag Name
-        id: tag_generator
+        #uses: actions/checkout@v4
         run: |
-          $date = Get-Date -Format "yyyyMMdd"
-          $hash = $env:GITHUB_SHA.Substring(0, 7)
-          $tagName = "v.$date"
-          
-          # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
-          echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
-          Write-Host "Tag yang akan dibuat: $tagName"
+          git clone https://github.com/ollama/ollama
+          cd ollama
 
-      - name: Update CMakeLists.txt Regex
-        run: |
           $file = "CMakeLists.txt"
           
           if (-not (Test-Path $file)) {
@@ -54,8 +44,6 @@ jobs:
           
           Write-Host "Sukses: CMakeLists.txt telah diupdate."
 
-      - name: Update CMakePresets.json Target
-        run: |
           $file = "CMakePresets.json"
 
           if (-not (Test-Path $file)) {
@@ -75,26 +63,24 @@ jobs:
           Set-Content -Path $file -Value $newContent
           Write-Host "Sukses: CMakePresets.json telah diupdate."
 
-      - name: Verify Changes
-        run: |
           Write-Host "--- Cek CMakePresets.json ---"
           Select-String -Path "CMakePresets.json" -Pattern "gfx1103"
           
           Write-Host "--- Cek CMakeLists.txt ---"
           Select-String -Path "CMakeLists.txt" -Pattern "gfx1150"
-      - name: Compile
-        run: |
+
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 
-#      - name: Release
-#        uses: softprops/action-gh-release@v2
-#        with:
-#          tag_name: "Release ${{ env.GENERATED_TAG }}"     
-#          name: "Ollama 780M Release ${{ env.GENERATED_TAG }}"
-#          files: |
-#             dist/OllamaSetup.exe
-#          draft: false
-#          prerelease: false
+      - name: Generate Tag Name
+        id: tag_generator
+        run: |
+          $date = Get-Date -Format "yyyyMMdd"
+          $hash = $env:GITHUB_SHA.Substring(0, 7)
+          $tagName = "v.$date"
+          
+          # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
+          echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
+          Write-Host "Tag yang akan dibuat: $tagName"
 
       - name: Create Release & Upload
         env:
@@ -106,7 +92,7 @@ jobs:
           
           Write-Host "Mengupload release ke GitHub..."
           
-          gh release create ${{ env.GENERATED_TAG }} "dist\OllamaSetup.exe" `
+          gh release create ${{ env.GENERATED_TAG }} "ollama\dist\OllamaSetup.exe" `
             --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
             --generate-notes `
             --target "${{ github.sha }}"
