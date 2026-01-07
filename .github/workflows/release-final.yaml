@@ -91,7 +91,8 @@ jobs:
           # Syntax: gh release create <TAG> <FILES> --title <JUDUL> --notes <CATATAN>
           
           Write-Host "Mengupload release ke GitHub..."
-          
+          pwd
+          cd ollama
           gh release create ${{ env.GENERATED_TAG }} "ollama\dist\OllamaSetup.exe" `
             --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
             --generate-notes `
