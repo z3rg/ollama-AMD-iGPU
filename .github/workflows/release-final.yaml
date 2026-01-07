@@ -18,7 +18,10 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Checkout Repository , Add gfx 1103, and compile
+      - nsme: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Checkout ollama Repository , Add gfx 1103, and compile
         #uses: actions/checkout@v4
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +84,8 @@ jobs:
           echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
           Write-Host "Tag yang akan dibuat: $tagName"
           Write-Host "Mengupload release ke GitHub..."
-          gh release create ${{ env.GENERATED_TAG }} "dist\OllamaSetup.exe" `
+          cd ..
+          gh release create ${{ env.GENERATED_TAG }} "ollama\dist\OllamaSetup.exe" `
             --title "Ollama for 780M Release ${{ env.GENERATED_TAG }}" `
             --generate-notes `
             --target "${{ github.sha }}"
