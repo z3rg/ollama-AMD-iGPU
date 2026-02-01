@@ -2,10 +2,10 @@ name: Sync Fork (Ubuntu)
 
 on:
   # Jalan otomatis setiap hari sabtu jam 00:00 UTC (07:00 WIB)
-  schedule:
-    - cron: '0 0 * * 6'
+  #schedule:
+    #- cron: '0 0 * * 6'
   # Agar bisa ditrigger manual via tombol "Run workflow"
-  #workflow_dispatch:
+  workflow_dispatch:
 
 # Izin wajib agar bot bisa melakukan 'git push' ke repo Anda
 permissions:
