@@ -78,7 +78,7 @@ jobs:
 
           $date = Get-Date -Format "yyyyMMdd"
           $hash = $env:GITHUB_SHA.Substring(0, 7)
-          $tagName = "v$date-$hash"
+          $tagName = "v$date-$env:VERSION"
           
           # Simpan ke GitHub Env agar bisa dipakai step selanjutnya
           echo "GENERATED_TAG=$tagName" >> $env:GITHUB_ENV
