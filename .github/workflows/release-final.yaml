@@ -72,7 +72,7 @@ jobs:
           Select-String -Path "CMakePresets.json" -Pattern "gfx1103"
           
           Write-Host "--- Cek CMakeLists.txt ---"
-          Select-String -Path "CMakeLists.txt" -Pattern "gfx1150"
+          Select-String -Path "CMakeLists.txt" -Pattern "110[0-3]"
 
           powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 
