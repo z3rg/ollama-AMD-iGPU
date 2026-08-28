@@ -81,6 +81,20 @@ jobs:
             exit 1
           }
 
+          # Upstream's workflows come back with every merge. Keep only ours,
+          # so a sync can never re-enable upstream CI on this fork.
+          $keep = @('release-final.yaml', 'weekly-gfx1103.yaml')
+          $stray = Get-ChildItem '.github/workflows' -File -ErrorAction SilentlyContinue |
+            Where-Object { $keep -notcontains $_.Name }
+          if ($stray) {
+            foreach ($s in $stray) {
+              Write-Host "Dropping upstream workflow: $($s.Name)"
+              git rm -q --ignore-unmatch -- ".github/workflows/$($s.Name)"
+            }
+            git commit -q -m "Drop upstream workflows re-added by sync"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
           git push origin main
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
