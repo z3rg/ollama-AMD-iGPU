@@ -713,65 +713,104 @@ function cuda13Arm64IfAvailable {
     cudaArm64Common "13" "13.4" -Optional
 }
 
-function rocm6 {
-    # KNOWN ISSUE: ROCm v6 on Windows is currently broken with upstream llama.cpp b8591+.
-    # The vendors/hip.h guard (#if HIP_VERSION >= 60200000) assumes __hip_fp8_e4m3 exists,
-    # but Windows ROCm 6.2 only has the _fnuz variant (__hip_fp8_e4m3_fnuz).
-    # This causes a compile error in ggml-cuda/vendors/hip.h:240.
-    # Use rocm7 instead, or wait for an upstream fix.
+function rocmCommon {
+    param (
+        [string]$hipPath
+    )
+
     mkdir -Force -path "${script:DIST_DIR}\" | Out-Null
-    if ($script:ARCH -ne "arm64") {
-        if ($script:HIP_PATH_V6) {
-            Write-Output "WARNING: ROCm v6 build is currently broken (FP8 type mismatch). Skipping."
-            Write-Output "Use rocm7 instead."
-        } else {
-            Write-Output "ROCm v6 not detected, skipping"
-        }
+    if ($script:ARCH -eq "arm64") {
+        return
+    }
+
+    $rocmVersion = Split-Path -Leaf $hipPath
+    if ($rocmVersion -notmatch '^(\d+)\.(\d+)') {
+        Write-Output "Unable to determine ROCm version from $hipPath"
+        exit(1)
+    }
+    $rocmMajor = [int]$Matches[1]
+    $rocmMinor = [int]$Matches[2]
+
+    # ROCm 6.2 and older only expose the _fnuz FP8 types, but upstream
+    # llama.cpp's vendors/hip.h guard (#if HIP_VERSION >= 60200000) assumes the
+    # non-fnuz __hip_fp8_e4m3 exists, which fails to compile. ROCm 6.4 ships the
+    # non-fnuz types and builds cleanly, so gate on 6.4 rather than on major 7.
+    if ($rocmMajor -lt 6 -or ($rocmMajor -eq 6 -and $rocmMinor -lt 4)) {
+        Write-Output "WARNING: ROCm $rocmVersion is too old (FP8 type mismatch); 6.4 or newer required. Skipping."
+        return
+    }
+
+    Write-Output "Building llama-server ROCm backend $hipPath"
+
+    # Windows ships a single ROCm preset family (rocm_v7_1_*). ROCm 6.4+ builds
+    # against it unchanged, so reuse that preset -- and its rocm_v7_1 runner
+    # directory -- instead of carrying a near-identical rocm_v6_* copy. The
+    # runner directory name is only a payload folder; nothing parses it for
+    # version semantics.
+    $rocmBackend = "rocm_v7_1"
+    $rocmArgs = @()
+    if ($env:OLLAMA_AMDGPU_TARGETS) {
+        # _user_arch has no baked-in target list, so the override is the whole set.
+        $rocmPreset = "${rocmBackend}_user_arch"
+        $rocmArgs += "-DAMDGPU_TARGETS=$env:OLLAMA_AMDGPU_TARGETS"
+        Write-Output "Overriding AMDGPU targets: $env:OLLAMA_AMDGPU_TARGETS"
+    } else {
+        $rocmPreset = "${rocmBackend}_windows"
+    }
+
+    if (-Not (get-command -ErrorAction silent ninja)) {
+        $NINJA_DIR=(gci -path (Get-CimInstance MSFT_VSInstance -Namespace root/cimv2/vs)[0].InstallLocation -r -fi ninja.exe).Directory.FullName
+        $env:PATH="$NINJA_DIR;$env:PATH"
+    }
+    $oldEnvironment = saveEnvironment
+    $oldGenerator = $env:CMAKE_GENERATOR
+    try {
+        # ROCm's clang targets x86_64-pc-windows-msvc, so it needs the MSVC
+        # toolchain and Windows SDK. Ninja is mandatory here: the Visual Studio
+        # generator silently fails to enable the HIP language and never
+        # produces ggml-hip.dll.
+        $env:CMAKE_GENERATOR = "Ninja"
+        ensureMsvcForNinja
+        $env:HIPCXX="${hipPath}\bin\clang++.exe"
+        $env:HIP_PLATFORM="amd"
+        $env:CMAKE_PREFIX_PATH="${hipPath}"
+        $env:CC="${hipPath}\bin\clang.exe"
+        $env:CXX="${hipPath}\bin\clang++.exe"
+        $configureArgs = @("-S", "llama\server", "--preset", $rocmPreset, "-G", "Ninja") + $rocmArgs + @("--install-prefix", "$script:DIST_DIR")
+        & cmake @configureArgs
+        if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
+        & cmake --build "build\llama-server-$rocmBackend" --config Release --parallel $script:JOBS
+        if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
+        & cmake --install "build\llama-server-$rocmBackend" --component llama-server --strip
+        if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
+    } finally {
+        restoreEnvironment $oldEnvironment
+        $env:CMAKE_GENERATOR = $oldGenerator
     }
 }
 
-function rocm7 {
-    mkdir -Force -path "${script:DIST_DIR}\" | Out-Null
-    if ($script:ARCH -ne "arm64") {
-        if ($script:HIP_PATH_V7) {
-            Write-Output "Building llama-server ROCm v7 backend $script:HIP_PATH_V7"
-            $rocmVersion = Split-Path -Leaf $script:HIP_PATH_V7
-            if ($rocmVersion -notmatch '^(\d+)\.(\d+)') {
-                Write-Output "Unable to determine ROCm version from $script:HIP_PATH_V7"
-                exit(1)
-            }
-            $rocmBackend = "rocm_v$($Matches[1])_$($Matches[2])"
-            $rocmPreset = "${rocmBackend}_windows"
-            if (-Not (get-command -ErrorAction silent ninja)) {
-                $NINJA_DIR=(gci -path (Get-CimInstance MSFT_VSInstance -Namespace root/cimv2/vs)[0].InstallLocation -r -fi ninja.exe).Directory.FullName
-                $env:PATH="$NINJA_DIR;$env:PATH"
-            }
-            $oldHIPCXX = $env:HIPCXX
-            $oldHIP_PLATFORM = $env:HIP_PLATFORM
-            $oldCMAKE_PREFIX_PATH = $env:CMAKE_PREFIX_PATH
-            $oldCC = $env:CC
-            $oldCXX = $env:CXX
-            $env:HIPCXX="${script:HIP_PATH_V7}\bin\clang++.exe"
-            $env:HIP_PLATFORM="amd"
-            $env:CMAKE_PREFIX_PATH="${script:HIP_PATH_V7}"
-            $env:CC="${script:HIP_PATH_V7}\bin\clang.exe"
-            $env:CXX="${script:HIP_PATH_V7}\bin\clang++.exe"
-            & cmake -S llama\server --preset $rocmPreset -G Ninja `
-                --install-prefix $script:DIST_DIR
-            if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
-            $env:HIPCXX=$oldHIPCXX
-            $env:HIP_PLATFORM=$oldHIP_PLATFORM
-            $env:CMAKE_PREFIX_PATH=$oldCMAKE_PREFIX_PATH
-            $env:CC=$oldCC
-            $env:CXX=$oldCXX
-            & cmake --build "build\llama-server-$rocmBackend" --config Release --parallel $script:JOBS
-            if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
-            & cmake --install "build\llama-server-$rocmBackend" --component llama-server --strip
-            if ($LASTEXITCODE -ne 0) { exit($LASTEXITCODE)}
-        } else {
-            Write-Output "ROCm v7 not detected, skipping"
-        }
+function rocm6 {
+    if ($null -eq $script:HIP_PATH_V6) {
+        Write-Output "ROCm v6 not detected, skipping"
+        return
     }
+    rocmCommon $script:HIP_PATH_V6
+}
+
+function rocm7 {
+    if ($null -eq $script:HIP_PATH_V7) {
+        Write-Output "ROCm v7 not detected, skipping"
+        return
+    }
+    rocmCommon $script:HIP_PATH_V7
+}
+
+function rocm {
+    if ($null -eq $script:HIP_PATH) {
+        Write-Output "ROCm not detected, skipping"
+        return
+    }
+    rocmCommon $script:HIP_PATH
 }
 
 function vulkan {
@@ -1306,7 +1345,7 @@ try {
         if ($script:ARCH -ne "arm64") {
             cuda13Arm64IfAvailable
         }
-        rocm7
+        rocm
         vulkan
         mlxCuda13
         ollama
