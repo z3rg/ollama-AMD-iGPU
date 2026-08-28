@@ -55,6 +55,10 @@ jobs:
       - name: Sync with upstream ollama/ollama
         if: ${{ !inputs.skip_sync }}
         run: |
+          # See the note in "Publish release": stderr from git under
+          # ErrorActionPreference=Stop would abort before the exit-code checks.
+          $ErrorActionPreference = 'Continue'
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
@@ -152,12 +156,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Actions runs powershell with ErrorActionPreference=Stop, and in
+          # PS 5.1 redirecting a native command's stderr raises a terminating
+          # NativeCommandError even on success. The explicit $LASTEXITCODE
+          # checks below are the real error handling.
+          $ErrorActionPreference = 'Continue'
+
           $date = Get-Date -Format 'yyyyMMdd'
           $sha = git rev-parse --short=7 HEAD
           $tag = "v$date-$sha"
 
           # Same-day re-runs with no upstream change would collide on the tag.
-          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>&1 | Out-Null
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             $tag = "$tag-$env:GITHUB_RUN_NUMBER"
             Write-Host "Release already existed; using $tag instead."
