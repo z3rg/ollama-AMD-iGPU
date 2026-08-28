@@ -1,0 +1,210 @@
+name: weekly-gfx1103
+
+# Weekly Ollama build for AMD Radeon 780M (gfx1103) with a ROCm HIP backend.
+#
+# Runs on a self-hosted Windows runner because the build needs a local ROCm
+# install (6.4+), Visual Studio C++ tools, Go and Node. GitHub-hosted runners
+# have none of those.
+#
+# Flow: sync fork with upstream -> build -> verify the gfx1103 backend really
+# got built -> publish a release with OllamaSetup.exe attached.
+
+on:
+  schedule:
+    # Saturday 00:00 UTC (07:00 WIB)
+    - cron: '0 0 * * 6'
+  workflow_dispatch:
+    inputs:
+      skip_sync:
+        description: 'Build the current fork state without merging upstream first'
+        type: boolean
+        default: false
+      amdgpu_targets:
+        description: 'AMDGPU targets to compile the ROCm backend for'
+        type: string
+        default: 'gfx1103'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-gfx1103
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Ollama for gfx1103 (Radeon 780M)
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 300
+
+    env:
+      AMDGPU_TARGETS_INPUT: ${{ inputs.amdgpu_targets || 'gfx1103' }}
+
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # Full history is required to merge upstream.
+          fetch-depth: 0
+
+      - name: Sync with upstream ollama/ollama
+        if: ${{ !inputs.skip_sync }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if (-not (git remote | Select-String -SimpleMatch 'upstream' -Quiet)) {
+            git remote add upstream https://github.com/ollama/ollama.git
+          }
+          git fetch upstream --tags
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git merge upstream/main --no-edit
+          if ($LASTEXITCODE -ne 0) {
+            git merge --abort
+            Write-Host '::error::Merge with upstream/main conflicted. Resolve it locally, push, then re-run.'
+            exit 1
+          }
+
+          git push origin main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Guards the exact failure mode the previous workflow had: it patched
+      # gfx1103 in with a silent string replace, so when upstream moved the
+      # file the build quietly shipped with no ROCm backend at all.
+      - name: Verify gfx1103 support is present in the tree
+        run: |
+          $ok = $true
+
+          if (-not (Select-String -Path .\scripts\build_windows.ps1 -Pattern 'OLLAMA_AMDGPU_TARGETS' -Quiet)) {
+            Write-Host '::error::build_windows.ps1 lost OLLAMA_AMDGPU_TARGETS support (upstream merge likely reverted it).'
+            $ok = $false
+          }
+          if (-not (Select-String -Path .\scripts\build_windows.ps1 -Pattern 'function rocmCommon' -Quiet)) {
+            Write-Host '::error::build_windows.ps1 lost the rocmCommon build path (upstream merge likely reverted it).'
+            $ok = $false
+          }
+          if (-not (Test-Path .\llama\server\CMakePresets.json)) {
+            Write-Host '::error::llama/server/CMakePresets.json not found - upstream layout changed.'
+            $ok = $false
+          }
+
+          if (-not $ok) { exit 1 }
+          Write-Host "Building for AMDGPU targets: $env:AMDGPU_TARGETS_INPUT"
+
+      - name: Report toolchain
+        run: |
+          $rocm = Get-ChildItem 'C:\Program Files\AMD\ROCm' -ErrorAction SilentlyContinue |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $rocm) {
+            Write-Host '::error::No ROCm install found under C:\Program Files\AMD\ROCm. ROCm 6.4 or newer is required.'
+            exit 1
+          }
+          Write-Host "ROCm  : $($rocm.FullName)"
+          Write-Host "Go    : $(go version)"
+          Write-Host "CMake : $(cmake --version | Select-Object -First 1)"
+          Write-Host "Node  : $(node --version)"
+
+      - name: Build
+        run: |
+          $env:OLLAMA_AMDGPU_TARGETS = $env:AMDGPU_TARGETS_INPUT
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1 cpu rocm ollama app deps sign installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # build_windows.ps1 swallows exceptions in its top-level catch and can
+      # exit 0 after a failure, so check the artifacts directly.
+      - name: Verify build artifacts
+        run: |
+          $ok = $true
+          $runner = '.\dist\windows-amd64\lib\ollama\rocm_v7_1'
+
+          $hip = Join-Path $runner 'ggml-hip.dll'
+          if (Test-Path $hip) {
+            Write-Host "ggml-hip.dll : $([math]::Round((Get-Item $hip).Length/1MB,1)) MB"
+          } else {
+            Write-Host "::error::$hip was not produced - the ROCm backend did not build."
+            $ok = $false
+          }
+
+          foreach ($t in ($env:AMDGPU_TARGETS_INPUT -split ';')) {
+            $kernels = @(Get-ChildItem (Join-Path $runner 'rocblas\library') -Filter "*$t*" -ErrorAction SilentlyContinue)
+            if ($kernels.Count -gt 0) {
+              Write-Host "rocBLAS kernels for ${t}: $($kernels.Count)"
+            } else {
+              Write-Host "::error::No rocBLAS kernels found for $t."
+              $ok = $false
+            }
+          }
+
+          if (-not (Test-Path '.\dist\OllamaSetup.exe')) {
+            Write-Host '::error::dist\OllamaSetup.exe was not produced.'
+            $ok = $false
+          }
+
+          if (-not $ok) { exit 1 }
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $date = Get-Date -Format 'yyyyMMdd'
+          $sha = git rev-parse --short=7 HEAD
+          $tag = "v$date-$sha"
+
+          # Same-day re-runs with no upstream change would collide on the tag.
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            $tag = "$tag-$env:GITHUB_RUN_NUMBER"
+            Write-Host "Release already existed; using $tag instead."
+          }
+
+          $upstream = git rev-parse --short=7 upstream/main 2>$null
+          if (-not $upstream) { $upstream = 'n/a' }
+          $built = Get-Date -Format 'yyyy-MM-dd HH:mm'
+          $targets = $env:AMDGPU_TARGETS_INPUT
+
+          $notes = @(
+            'Weekly Ollama build for **AMD Radeon 780M (gfx1103)** with a ROCm HIP backend.'
+            ''
+            '| | |'
+            '|---|---|'
+            "| Built from | $sha |"
+            "| Upstream ollama/ollama | $upstream |"
+            "| ROCm targets | $targets |"
+            "| Built | $built |"
+            ''
+            'Upstream Windows builds do not include gfx1103 in their ROCm target list, so'
+            'Radeon 780M iGPUs fall back to CPU inference. This build adds it.'
+            ''
+            '### Caveats'
+            ''
+            "- The ROCm backend is compiled for $targets only. Other AMD GPUs fall back to CPU."
+            '- The installer is unsigned, so Windows SmartScreen will warn on first run.'
+            '- The ROCm runtime is bundled; no separate ROCm install is needed to run it.'
+            ''
+            '### Install'
+            ''
+            'Download and run OllamaSetup.exe.'
+          )
+
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -Path $notesFile -Value $notes -Encoding utf8
+
+          $asset = '.\dist\OllamaSetup.exe#OllamaSetup.exe (gfx1103 / Radeon 780M)'
+          gh release create $tag $asset --repo $env:GITHUB_REPOSITORY --title "Ollama for Radeon 780M - $tag" --notes-file $notesFile --target main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Write-Host "Published $tag"
+
+      - name: Clean workspace
+        if: always()
+        run: |
+          # The runner is self-hosted, so the workspace persists between runs.
+          # dist/ is recreated every build; build/ is kept for incremental compiles.
+          Remove-Item -Path '.\dist' -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'Removed dist/. Kept build/ so the next run compiles incrementally.'
