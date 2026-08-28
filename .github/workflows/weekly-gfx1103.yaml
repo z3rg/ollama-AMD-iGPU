@@ -27,6 +27,10 @@ on:
         description: 'Publish a GitHub release (uncheck for a build-only test)'
         type: boolean
         default: true
+      clean_build:
+        description: 'Wipe build/ before compiling (use after a failed or interrupted build)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -57,6 +61,30 @@ jobs:
           ref: main
           # Full history is required to merge upstream.
           fetch-depth: 0
+
+      # llama.cpp ships source paths that exceed Windows' 260-char MAX_PATH once
+      # nested under the runner workspace plus build/_deps/llama_cpp-src. Without
+      # this the FetchContent clone dies with "Filename too long".
+      - name: Enable git long paths
+        run: |
+          git config --global core.longpaths true
+          Write-Host "core.longpaths = $(git config --global --get core.longpaths)"
+
+          $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+          $lp = (Get-ItemProperty -Path $key -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled
+          if ($lp -eq 1) {
+            Write-Host 'Windows LongPathsEnabled = 1'
+          } else {
+            Write-Host '::warning::Windows LongPathsEnabled is not set. git long paths cover the clone, but if a later build step reports a path length error, set it with: New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force  (needs admin + reboot)'
+          }
+
+      - name: Clean build directory
+        if: ${{ inputs.clean_build }}
+        run: |
+          if (Test-Path '.\build') {
+            Write-Host 'Removing build/ for a clean compile'
+            Remove-Item -Path '.\build' -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Sync with upstream ollama/ollama
         if: ${{ !inputs.skip_sync }}
