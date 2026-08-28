@@ -1,0 +1,48 @@
+name: Sync Fork (Ubuntu)
+
+on:
+  # Jalan otomatis setiap hari sabtu jam 00:00 UTC (07:00 WIB)
+  #schedule:
+    #- cron: '0 0 * * 6'
+  # Agar bisa ditrigger manual via tombol "Run workflow"
+  workflow_dispatch:
+
+# Izin wajib agar bot bisa melakukan 'git push' ke repo Anda
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout repository Anda
+      - name: Checkout Fork
+        uses: actions/checkout@v4
+        with:
+          ref: main        # Pastikan ini sesuai branch utama anda (main/master)
+          fetch-depth: 0   # WAJIB: Ambil semua history agar bisa di-merge
+
+      # 2. Proses Sync
+      - name: Sync with Upstream
+        run: |
+          # A. Konfigurasi User Git (Formalitas)
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+
+          # B. Tambahkan Remote Upstream (Repo Asli)
+          # GANTI URL DI BAWAH INI DENGAN REPO ASLI (TARGET)
+          git remote add upstream https://github.com/ollama/ollama.git
+          
+          # C. Ambil update terbaru
+          echo "Fetching upstream..."
+          git fetch upstream
+
+          # D. Pindah ke branch main dan Merge
+          echo "Merging changes..."
+          git checkout main
+          git merge upstream/main
+
+          # E. Push perubahan ke Fork Anda
+          echo "Pushing changes..."
+          git push origin main
