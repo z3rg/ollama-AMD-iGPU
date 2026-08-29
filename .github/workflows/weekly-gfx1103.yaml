@@ -202,7 +202,9 @@ jobs:
 
       # Build-only test runs upload the installer instead of publishing it.
       - name: Upload installer as artifact (test runs)
-        if: ${{ inputs.publish == false }}
+        # inputs is empty on schedule, and null coerces equal to false, so
+        # gate on the event name rather than on inputs.publish alone.
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
         uses: actions/upload-artifact@v4
         with:
           name: OllamaSetup-gfx1103
@@ -210,7 +212,7 @@ jobs:
           retention-days: 7
 
       - name: Publish release
-        if: ${{ inputs.publish != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
